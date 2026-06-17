@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sensorless Freehand 3D Ultrasound Reconstruction</title>
+<script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+<style>
+:root{
+  --red:#DA291C;--red-d:#B01F15;--red-l:#FCECEA;--red-m:#F5C6C3;
+  --text:#1a1a1a;--text2:#555;--border:#E0E0E0;--bg:#FFF;--bg2:#F8F9FA;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);}
+
+header{background:var(--red);padding:0 22px;display:flex;align-items:center;
+        justify-content:flex-start;min-height:70px;position:relative;
+        box-shadow:0 3px 10px rgba(0,0,0,.25);}
+.hdr-text{position:absolute;left:50%;transform:translateX(-50%);text-align:center;white-space:nowrap;}
+.hdr-text h1{font-size:clamp(.85rem,2.2vw,1.18rem);color:#fff;font-weight:700;line-height:1.3;}
+.hdr-text p{font-size:.7rem;color:rgba(255,255,255,.8);margin-top:3px;line-height:1.5;}
+
+.infobar{background:var(--red-l);border-bottom:2px solid var(--red-m);padding:7px 18px;
+          display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:.76rem;color:var(--text2);}
+.tag{background:#fff;border:1px solid var(--red-m);color:var(--red-d);
+      border-radius:6px;padding:2px 8px;font-size:.7rem;font-weight:600;}
+#case-select{
+  background:var(--red);color:#fff;border:1px solid var(--red-d);border-radius:6px;
+  padding:4px 24px 4px 10px;font-size:.71rem;font-weight:600;cursor:pointer;outline:none;
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23fff'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center;}
+#case-select:hover{background-color:var(--red-d);}
+#case-select option{background:#fff;color:var(--text);}
+#case-select option:disabled{color:#aaa;}
+
+.main-grid{display:grid;grid-template-columns:minmax(260px,320px) 1fr 1fr;
+            gap:12px;padding:12px 16px;align-items:start;}
+@media(max-width:1050px){
+  .main-grid{grid-template-columns:1fr 1fr;}
+  .panel-2d{grid-column:1/-1;max-width:420px;margin:0 auto;width:100%;}
+}
+@media(max-width:600px){
+  .main-grid{grid-template-columns:1fr;padding:8px;gap:8px;}
+  .panel-2d{max-width:100%;}
+  header{flex-direction:column;padding:10px 14px;gap:6px;text-align:center;}
+  .hdr-right{align-items:center;}
+  .infobar{padding:5px 10px;font-size:.7rem;}
+  .metrics-wrap{margin:0 8px 14px;}
+}
+
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;
+        overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.07);}
+.panel-hdr{background:#fff;padding:8px 12px;font-size:.78rem;font-weight:700;color:var(--text2);
+            border-bottom:2px solid var(--red);display:flex;align-items:center;justify-content:space-between;}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red);
+      margin-right:6px;display:inline-block;}
+.dot.b{background:#1565c0;}
+
+#canvas-wrap{position:relative;display:block;width:100%;}
+#frame-canvas{display:block;width:100%;height:auto;background:#000;border-radius:6px;}
+#lm-overlay{position:absolute;top:0;left:0;width:100%;height:100%;border-radius:6px;}
+.slider-row{display:flex;align-items:center;gap:7px;margin-top:8px;}
+#frame-slider{flex:1;accent-color:var(--red);cursor:pointer;min-width:0;}
+#frame-num{font-size:.73rem;color:var(--text2);min-width:64px;text-align:right;}
+.btn-play{background:var(--red);color:#fff;border:none;border-radius:6px;padding:5px 11px;
+           font-size:.73rem;font-weight:600;cursor:pointer;white-space:nowrap;}
+.btn-play:hover{background:var(--red-d);}
+.legend-row{display:flex;gap:12px;margin-top:8px;font-size:.7rem;color:var(--text2);flex-wrap:wrap;}
+.dot-lg{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:3px;vertical-align:middle;}
+
+.vol-ctrl{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 11px;
+           background:#111;border-bottom:1px solid #333;font-size:.71rem;color:#bbb;}
+.vol-ctrl input[type=checkbox]{accent-color:var(--red);width:13px;height:13px;cursor:pointer;}
+.vol-ctrl label{cursor:pointer;user-select:none;display:flex;align-items:center;gap:3px;}
+.vol-ctrl input[type=range]{width:60px;accent-color:var(--red);cursor:pointer;}
+.sep{color:#444;}
+.plotly-wrap{height:430px;width:100%;background:#000;}
+@media(max-width:600px){.plotly-wrap{height:300px;}}
+
+.metrics-wrap{margin:0 16px 20px;padding:12px 14px;background:var(--bg2);
+               border:1px solid var(--border);border-radius:10px;
+               box-shadow:0 2px 8px rgba(0,0,0,.07);overflow-x:auto;}
+.metrics-title{font-size:.82rem;font-weight:700;color:var(--text);margin-bottom:9px;
+                padding-bottom:7px;border-bottom:2px solid var(--red);
+                display:flex;align-items:center;gap:7px;}
+.metrics-title .bar{background:var(--red);width:4px;height:16px;border-radius:2px;}
+table.met{min-width:520px;width:100%;border-collapse:collapse;font-size:.82rem;}
+table.met th{background:#fff;color:var(--text2);font-weight:600;padding:7px 12px;text-align:center;
+              border-bottom:2px solid var(--red-m);border-right:1px solid var(--border);}
+table.met th:last-child{border-right:none;}
+table.met td{padding:7px 12px;text-align:center;border-bottom:1px solid var(--border);
+              border-right:1px solid var(--border);font-family:monospace;font-size:.88rem;font-weight:600;}
+table.met td:last-child{border-right:none;}
+table.met td.good{color:#1a7a1a;background:#f0fff0;}
+table.met td.warn{color:#885500;background:#fffbe0;}
+table.met td.base{color:#1a1a8a;background:#f0f0ff;}
+.met-legend{margin-top:7px;font-size:.68rem;color:var(--text2);line-height:1.8;}
+
+/* Loading overlay */
+#loading{position:fixed;inset:0;background:rgba(255,255,255,.92);display:flex;
+          flex-direction:column;align-items:center;justify-content:center;
+          gap:14px;z-index:999;font-size:.9rem;color:var(--text2);}
+.spinner{width:40px;height:40px;border:4px solid var(--red-m);border-top-color:var(--red);
+          border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+footer{background:var(--red);color:rgba(255,255,255,.88);text-align:center;font-size:.7rem;padding:8px;}
+</style>
+</head>
+<body>
+
+<!-- Loading overlay (hidden after data fetch completes) -->
+<div id="loading">
+  <div class="spinner"></div>
+  <span id="loading-msg">Loading scan data…</span>
+</div>
+
+<header>
+  <img src="ets_logo.png" alt="ETS" style="height:56px;width:auto;display:block;flex-shrink:0;">
+  <div class="hdr-text">
+    <h1>Sensorless Freehand 3D Ultrasound Reconstruction for Spine Imaging</h1>
+    <p style="line-height:1.5">
+      <strong>Ihssene Brahimi</strong><sup>1</sup> &nbsp;&amp;&nbsp;
+      Farida Cheriet<sup>2</sup> &nbsp;&amp;&nbsp; Catherine Laporte<sup>1</sup><br>
+      <span style="font-size:.65rem;opacity:.85">
+        <sup>1</sup>&nbsp;École de technologie supérieure &emsp;
+        <sup>2</sup>&nbsp;Polytechnique Montréal
+      </span>
+    </p>
+  </div>
+</header>
+
+<div class="infobar">
+  <select id="case-select" onchange="loadCase(this.value)">
+    <option value="29_BL_Aug_11_scan_3">Patient 29 &mdash; BL Aug 11 &mdash; Scan 3</option>
+    <option value="03_ST_May_31_scan_3">Case 2 (TBD)</option>
+    <option value="34_JA_Aug_25_scan_8">Case 3 (TBD)</option>
+  </select>
+</div>
+
+<div class="main-grid">
+
+  <!-- 2D viewer -->
+  <div class="panel panel-2d">
+    <div class="panel-hdr">
+      <span><span class="dot"></span>Scan Sequence</span>
+      <span style="font-size:.67rem;font-weight:400;color:#999">2D + GT landmarks</span>
+    </div>
+    <div style="padding:9px">
+      <div id="canvas-wrap">
+        <canvas id="frame-canvas" width="160" height="120"></canvas>
+        <canvas id="lm-overlay"  width="160" height="120"></canvas>
+      </div>
+      <div class="slider-row">
+        <button class="btn-play" id="play-btn" onclick="togglePlay()">&#9654; Play</button>
+        <input type="range" id="frame-slider" min="0" max="448" value="0"
+               oninput="setFrame(+this.value)">
+        <span id="frame-num">— / —</span>
+      </div>
+      <div class="legend-row">
+        <span><span class="dot-lg" style="background:#00cccc"></span>Left lamina</span>
+        <span><span class="dot-lg" style="background:#ff8c00"></span>Right lamina</span>
+        <span><span class="dot-lg" style="background:#DA291C;border-radius:2px;"></span>Frame position</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- GT 3D -->
+  <div class="panel">
+    <div class="panel-hdr">
+      <span><span class="dot b"></span>Ground Truth 3D Volume</span>
+      <span style="font-size:.67rem;font-weight:400;color:#999">drag&nbsp;&middot;&nbsp;scroll&nbsp;&middot;&nbsp;pinch</span>
+    </div>
+    <div class="vol-ctrl">
+      <label><input type="checkbox" id="gt-vol-chk" checked onchange="toggleVol('gt')">&nbsp;Volume</label>
+      <label style="gap:5px">Opacity
+        <input type="range" id="gt-vol-op" min="0.1" max="1.0" step="0.05" value="1.0"
+               oninput="setVolOp('gt',+this.value)">
+      </label>
+      <label><input type="checkbox" id="gt-pc-chk" onchange="setRenderMode('gt',this.checked?'pc':'iso')">&nbsp;Point&nbsp;Cloud</label>
+      <span class="sep">|</span>
+      <label><input type="checkbox" id="gt-sl-chk" checked onchange="toggleSlice('gt')">&nbsp;US&nbsp;slice</label>
+      <label><input type="checkbox" id="gt-lm-chk" checked onchange="toggleLm('gt')">&nbsp;Landmarks</label>
+      <label><input type="checkbox" id="gt-hull-chk" checked onchange="toggleHull('gt')">&nbsp;Sweep</label>
+    </div>
+    <div id="plot-gt" class="plotly-wrap"></div>
+  </div>
+
+  <!-- PRED 3D -->
+  <div class="panel">
+    <div class="panel-hdr">
+      <span><span class="dot"></span>Reconstructed Volume</span>
+      <span style="font-size:.67rem;font-weight:400;color:#999">drag&nbsp;&middot;&nbsp;scroll&nbsp;&middot;&nbsp;pinch</span>
+    </div>
+    <div class="vol-ctrl">
+      <label><input type="checkbox" id="pr-vol-chk" checked onchange="toggleVol('pr')">&nbsp;Volume</label>
+      <label style="gap:5px">Opacity
+        <input type="range" id="pr-vol-op" min="0.1" max="1.0" step="0.05" value="1.0"
+               oninput="setVolOp('pr',+this.value)">
+      </label>
+      <label><input type="checkbox" id="pr-pc-chk" onchange="setRenderMode('pr',this.checked?'pc':'iso')">&nbsp;Point&nbsp;Cloud</label>
+      <span class="sep">|</span>
+      <label><input type="checkbox" id="pr-sl-chk" checked onchange="toggleSlice('pr')">&nbsp;US&nbsp;slice</label>
+      <label><input type="checkbox" id="pr-lm-chk" checked onchange="toggleLm('pr')">&nbsp;Landmarks</label>
+      <label><input type="checkbox" id="pr-hull-chk" checked onchange="toggleHull('pr')">&nbsp;Sweep</label>
+    </div>
+    <div id="plot-pr" class="plotly-wrap"></div>
+  </div>
+
+</div>
+
+<!-- METRICS -->
+<div class="metrics-wrap">
+  <div class="metrics-title">
+    <span class="bar"></span>
+    Metric Report &mdash; <span id="met-title-scan">—</span>
+  </div>
+  <table class="met">
+    <thead><tr>
+      <th>MDE (mm)</th><th>NDFD</th><th>MEA (&deg;)</th>
+      <th>FDR (%)</th><th>ADR (%)</th><th>MD (mm)</th><th>HD (mm)</th>
+    </tr></thead>
+    <tbody id="met-body"></tbody>
+  </table>
+  <div class="met-legend">
+    <strong>MDE</strong> Mean Distance Error (3D landmark) &nbsp;&middot;&nbsp;
+    <strong>NDFD</strong> Normalized Discrete Fréchet Distance &nbsp;&middot;&nbsp;
+    <strong>MEA</strong> Mean Error of Angle &nbsp;&middot;&nbsp;
+    <strong>FDR</strong> Final Drift Rate &nbsp;&middot;&nbsp;
+    <strong>ADR</strong> Accumulated Drift Rate &nbsp;&middot;&nbsp;
+    <strong>MD</strong> Mean Displacement &nbsp;&middot;&nbsp;
+    <strong>HD</strong> Hausdorff Distance
+    &emsp;<span style="color:#1a7a1a">&#9632;&nbsp;good</span>
+    &nbsp;<span style="color:#885500">&#9632;&nbsp;warn</span>
+    &nbsp;<span style="color:#1a1a8a">&#9632;&nbsp;landmark</span>
+  </div>
+</div>
+
+<footer>
+  &copy; &Eacute;cole de technologie sup&eacute;rieure (&Eacute;TS) &nbsp;&middot;&nbsp;
+  LATIS Lab &nbsp;&middot;&nbsp;
+  Sensorless Freehand 3D Ultrasound Reconstruction for Spine Imaging
+</footer>
+
+<script>
+// ── config ────────────────────────────────────────────────────────────────────
+const CASES = [
+  {slug:'29_BL_Aug_11_scan_3',  label:'Patient 29 — BL Aug 11 — Scan 3'},
+  {slug:'03_ST_May_31_scan_3',  label:'Case 2 (TBD)'},
+  {slug:'34_JA_Aug_25_scan_8',  label:'Case 3 (TBD)'},
+];
+
+let DATA = null;   // metadata (lm_2d, series, metrics, frames_url / frames_b64)
+let D3   = null;   // 3D data  (iso_gt, iso_pr, lm_gt, lm_pr, hull_gt, hull_pr)
+
+// ── compact grid → flat x/y/z/value arrays for Plotly isosurface ──────────────
+function expandCompactGrid(g) {
+  const [nx,ny,nz]=g.shape, [ox,oy,oz]=g.origin, vs=g.voxel_size, vals=g.values;
+  const n=nx*ny*nz;
+  const x=new Array(n), y=new Array(n), z=new Array(n), value=new Array(n);
+  let idx=0;
+  for(let a=0;a<nx;a++) for(let b=0;b<ny;b++) for(let c=0;c<nz;c++){
+    x[idx]=ox+a*vs; y[idx]=oy+b*vs; z[idx]=oz+c*vs; value[idx]=vals[idx]; idx++;
+  }
+  return {x,y,z,value};
+}
+
+// ── trace builders ─────────────────────────────────────────────────────────────
+// bone colormap: medium gray → light blue-gray → white (no dark tones)
+const VOL_COLORSCALE=[
+  [0.00,'rgb(110,115,125)'],
+  [0.35,'rgb(155,162,175)'],
+  [0.65,'rgb(195,202,215)'],
+  [0.85,'rgb(218,224,234)'],
+  [1.00,'rgb(238,242,250)']
+];
+
+function buildVolumeTrace(gridData, opacity) {
+  const {x,y,z,value}=expandCompactGrid(gridData);
+  return {
+    type:'isosurface', name:'Volume',
+    x,y,z,value,
+    isomin:0.35, isomax:1.0,
+    surface:{count:2, fill:0.95},
+    colorscale:VOL_COLORSCALE,
+    cmin:0.28, cmax:1.0,
+    opacity:opacity*0.92,
+    showscale:false,
+    caps:{x:{show:false},y:{show:false},z:{show:false}},
+    lighting:{ambient:0.25,diffuse:0.9,specular:0.8,roughness:0.3,fresnel:0.4},
+    lightposition:{x:300,y:400,z:150},
+    hoverinfo:'skip',
+  };
+}
+
+function buildPCfromGrid(gridData, opacity) {
+  // DVR (direct volume rendering) matching PyVista add_volume(cmap='bone', opacity='dense')
+  // opacityscale = transfer function: low values transparent, high values opaque
+  const {x,y,z,value}=expandCompactGrid(gridData);
+  return {
+    type:'volume', name:'Volume',
+    x, y, z, value,
+    isomin:0.05, isomax:1.0,
+    colorscale:[
+      [0.00,'rgb(0,0,0)'],
+      [0.35,'rgb(55,57,65)'],
+      [0.65,'rgb(148,150,158)'],
+      [0.85,'rgb(210,211,218)'],
+      [1.00,'rgb(255,255,255)'],
+    ],
+    // mirrors PyVista "dense": [0,0, 0.015, 0.05, 0.10, 0.18, 0.28, 0.40]
+    opacityscale:[[0,0.15],[0.20,0.28],[0.40,0.45],[0.60,0.62],[0.80,0.80],[1.0,1.0]],
+    opacity:opacity*0.9,
+    surface:{show:false},
+    spaceframe:{show:true,fill:1.0},
+    caps:{x:{show:false},y:{show:false},z:{show:false}},
+    showscale:false,
+    hoverinfo:'skip',
+  };
+}
+
+function buildLmTrace(lmData, name, c0, c1) {
+  const p0=lmData['0'], p1=lmData['1'];
+  return [
+    {type:'scatter3d',mode:'markers',name:'Left ('+name+')',
+      x:p0.map(p=>p[0]),y:p0.map(p=>p[1]),z:p0.map(p=>p[2]),
+      marker:{color:c0,size:5,opacity:0.95,symbol:'circle',
+               line:{color:'rgba(0,0,0,0.5)',width:0.5}},
+      hovertemplate:'Left lamina<br>(%{x:.1f}, %{y:.1f}, %{z:.1f})<extra></extra>'},
+    {type:'scatter3d',mode:'markers',name:'Right ('+name+')',
+      x:p1.map(p=>p[0]),y:p1.map(p=>p[1]),z:p1.map(p=>p[2]),
+      marker:{color:c1,size:5,opacity:0.95,symbol:'circle',
+               line:{color:'rgba(0,0,0,0.5)',width:0.5}},
+      hovertemplate:'Right lamina<br>(%{x:.1f}, %{y:.1f}, %{z:.1f})<extra></extra>'},
+  ];
+}
+function buildHullTrace(hull, color, name) {
+  return {type:'scatter3d',mode:'lines',name:name,
+    x:hull.x,y:hull.y,z:hull.z,line:{color:color,width:3},opacity:0.65,hoverinfo:'skip'};
+}
+
+// Trace indices
+const GT_ISO=0,GT_PC=1,GT_LM0=2,GT_LM1=3,GT_HULL=4,GT_SLICE=5,GT_FRAME=6;
+const PR_ISO=0,PR_PC=1,PR_LM0=2,PR_LM1=3,PR_HULL=4,PR_SLICE=5,PR_FRAME=6;
+const INIT_OP=1.0;
+
+const emptySlice={
+  type:'surface',name:'US slice',
+  x:[[0,1],[0,1]],y:[[0,0],[1,1]],z:[[0,0],[0,0]],surfacecolor:[[0,0],[0,0]],
+  colorscale:[[0,'rgb(0,0,0)'],[1,'rgb(255,255,255)']],
+  cmin:0,cmax:1,showscale:false,opacity:0.0,
+  lighting:{ambient:1.0,diffuse:0.0,specular:0.0,roughness:1.0},hoverinfo:'skip',
+};
+
+const scene3d={
+  paper_bgcolor:'#000',plot_bgcolor:'#000',margin:{l:0,r:0,t:0,b:0},
+  scene:{
+    xaxis:{title:'X (mm)',color:'#ccc',gridcolor:'#3a3a3a',zerolinecolor:'#555',backgroundcolor:'#0a0a0a',
+           tickfont:{color:'#bbb'},titlefont:{color:'#ccc'}},
+    yaxis:{title:'Y (mm)',color:'#ccc',gridcolor:'#3a3a3a',zerolinecolor:'#555',backgroundcolor:'#080808',
+           tickfont:{color:'#bbb'},titlefont:{color:'#ccc'}},
+    zaxis:{title:'Z (mm)',color:'#ccc',gridcolor:'#3a3a3a',zerolinecolor:'#555',backgroundcolor:'#060606',
+           tickfont:{color:'#bbb'},titlefont:{color:'#ccc'}},
+    bgcolor:'#000',aspectmode:'data',
+  },
+  legend:{font:{color:'#bbb',size:10},bgcolor:'rgba(8,8,8,0.88)',bordercolor:'#333',borderwidth:1,x:0,y:1},
+  uirevision:'fixed',
+};
+const plotCfg={responsive:true,displaylogo:false,modeBarButtonsToRemove:['toImage','orbitRotation']};
+
+// ── controls ──────────────────────────────────────────────────────────────────
+let renderMode={gt:'iso',pr:'iso'};
+let gtTraces=[],prTraces=[];
+
+function toggleVol(w)   {
+  const vis=document.getElementById(w+'-vol-chk').checked, iso=renderMode[w]==='iso';
+  Plotly.restyle('plot-'+w,{visible:vis&&iso},[GT_ISO]);
+  Plotly.restyle('plot-'+w,{visible:vis&&!iso},[GT_PC]);
+}
+function setVolOp(w,v)  {
+  if(renderMode[w]==='iso') Plotly.restyle('plot-'+w,{opacity:v*0.85},[GT_ISO]);
+  else Plotly.restyle('plot-'+w,{'marker.opacity':v*0.85},[GT_PC]);
+}
+function toggleSlice(w) {Plotly.restyle('plot-'+w,{visible:document.getElementById(w+'-sl-chk').checked},[GT_SLICE]);}
+function toggleLm(w)    {Plotly.restyle('plot-'+w,{visible:document.getElementById(w+'-lm-chk').checked},[GT_LM0,GT_LM1]);}
+function toggleHull(w)  {Plotly.restyle('plot-'+w,{visible:document.getElementById(w+'-hull-chk').checked},[GT_HULL]);}
+
+function setRenderMode(w, mode) {
+  renderMode[w]=mode;
+  const vis=document.getElementById(w+'-vol-chk').checked;
+  Plotly.restyle('plot-'+w,{visible:vis&&mode==='iso'},[GT_ISO]);
+  Plotly.restyle('plot-'+w,{visible:vis&&mode==='pc'},[GT_PC]);
+}
+
+// ── 2D slice plane ─────────────────────────────────────────────────────────────
+const SL_NR=24,SL_NC=32;
+function sampleGray(){
+  const d=ctx.getImageData(0,0,W,H).data,g=[];
+  for(let i=0;i<SL_NR;i++){const row=[];for(let j=0;j<SL_NC;j++){
+    const px=Math.round(j*(W-1)/(SL_NC-1)),py=Math.round(i*(H-1)/(SL_NR-1)),k=(py*W+px)*4;
+    row.push((d[k]*.299+d[k+1]*.587+d[k+2]*.114)/255);}g.push(row);}return g;
+}
+function corners(s){
+  const[c,bl,br]=s;
+  return{tl:[2*c[0]-br[0],2*c[1]-br[1],2*c[2]-br[2]],
+          tr:[2*c[0]-bl[0],2*c[1]-bl[1],2*c[2]-bl[2]],bl,br};
+}
+function buildSlice(cor,gray){
+  const{tl,tr,bl,br}=cor,X=[],Y=[],Z=[];
+  for(let i=0;i<SL_NR;i++){const s=i/(SL_NR-1),Xr=[],Yr=[],Zr=[];
+    for(let j=0;j<SL_NC;j++){const t=j/(SL_NC-1),a=(1-s)*(1-t),b_=(1-s)*t,c_=s*t,d_=s*(1-t);
+      Xr.push(a*tl[0]+b_*tr[0]+c_*br[0]+d_*bl[0]);
+      Yr.push(a*tl[1]+b_*tr[1]+c_*br[1]+d_*bl[1]);
+      Zr.push(a*tl[2]+b_*tr[2]+c_*br[2]+d_*bl[2]);}
+    X.push(Xr);Y.push(Yr);Z.push(Zr);}return{X,Y,Z};
+}
+function updateSlice(fi){
+  const gray=sampleGray();
+  for(const[pid,sk,si]of[['plot-gt','gt_series',GT_SLICE],['plot-pr','pr_series',PR_SLICE]]){
+    const f=Math.min(fi,DATA[sk].length-1),g=buildSlice(corners(DATA[sk][f]),gray);
+    Plotly.restyle(pid,{x:[g.X],y:[g.Y],z:[g.Z],surfacecolor:[gray],opacity:[0.88]},[si]);
+  }
+}
+
+// ── frame outline ──────────────────────────────────────────────────────────────
+function frameOutline(s){
+  const[c,bl,br]=s,tl=[2*c[0]-br[0],2*c[1]-br[1],2*c[2]-br[2]],
+                   tr=[2*c[0]-bl[0],2*c[1]-bl[1],2*c[2]-bl[2]];
+  const pts=[tl,tr,br,bl,tl];return{x:pts.map(p=>p[0]),y:pts.map(p=>p[1]),z:pts.map(p=>p[2])};
+}
+function updateFrame3D(fi){
+  const gi=Math.min(fi,DATA.gt_series.length-1),pi=Math.min(fi,DATA.pr_series.length-1);
+  Plotly.restyle('plot-gt',frameOutline(DATA.gt_series[gi]),[GT_FRAME]);
+  Plotly.restyle('plot-pr',frameOutline(DATA.pr_series[pi]),[PR_FRAME]);
+}
+
+// ── 2D viewer ──────────────────────────────────────────────────────────────────
+const canvas=document.getElementById('frame-canvas');
+const overlay=document.getElementById('lm-overlay');
+const ctx=canvas.getContext('2d'),octx=overlay.getContext('2d');
+const W=canvas.width,H=canvas.height;
+let currentFrame=0,playTimer=null;
+
+function frameUrl(fi){
+  // Support both external URL (frames_url) and embedded base64 (frames_b64)
+  if(DATA.frames_b64) return 'data:image/jpeg;base64,'+DATA.frames_b64[fi];
+  return DATA.frames_url+'/'+String(fi).padStart(4,'0')+'.jpg';
+}
+function setFrame(fi){
+  currentFrame=fi;
+  document.getElementById('frame-slider').value=fi;
+  document.getElementById('frame-num').textContent=(fi+1)+' / '+DATA.n_frames;
+  const im=new Image();
+  im.onload=()=>{ctx.drawImage(im,0,0,W,H);drawLM(fi);updateSlice(fi);};
+  im.src=frameUrl(fi);
+  updateFrame3D(fi);
+}
+function drawLM(fi){
+  octx.clearRect(0,0,W,H);
+  const lm=DATA.lm_2d[String(fi)];if(!lm)return;
+  const C={'0':'#00cccc','1':'#ff8c00'},L={'0':'L','1':'R'};
+  for(const[s,pt]of Object.entries(lm)){
+    const[x,y]=pt;octx.beginPath();octx.arc(x,y,3,0,2*Math.PI);
+    octx.fillStyle=C[s];octx.fill();octx.strokeStyle='#fff';octx.lineWidth=1.5;octx.stroke();
+    octx.font='bold 11px monospace';octx.fillStyle=C[s];octx.fillText(L[s],x+8,y+4);
+  }
+}
+function togglePlay(){
+  const btn=document.getElementById('play-btn');
+  if(playTimer){clearInterval(playTimer);playTimer=null;btn.innerHTML='&#9654; Play';}
+  else{btn.innerHTML='&#9646;&#9646; Pause';playTimer=setInterval(()=>setFrame((currentFrame+1)%DATA.n_frames),40);}
+}
+
+// ── metrics ────────────────────────────────────────────────────────────────────
+function updateMetrics(m){
+  if(!m)return;
+  const fmt=(v,d=2)=>v!=null?Number(v).toFixed(d):'—';
+  const goodPct=v=>v!=null&&Number(v)<30?'good':Number(v)<60?'warn':'';
+  document.getElementById('met-body').innerHTML=`<tr>
+    <td class="base">${fmt(m.MDE_mm)}</td>
+    <td class="base">${fmt(m.NDFD,4)}</td>
+    <td class="${Number(m.MEA_deg)<10?'good':Number(m.MEA_deg)<20?'warn':''}">${fmt(m.MEA_deg)}&deg;</td>
+    <td class="${goodPct(m.FDR_pct)}">${fmt(m.FDR_pct)}</td>
+    <td class="${goodPct(m.ADR_pct)}">${fmt(m.ADR_pct)}</td>
+    <td>${fmt(m.MD_mm)}</td>
+    <td>${fmt(m.HD_mm)}</td>
+  </tr>`;
+}
+function updateInfobar(patient,scan,n){
+  const e=document.getElementById('met-title-scan');
+  if(e) e.textContent=patient+' Scan '+scan;
+}
+
+// ── camera sync ────────────────────────────────────────────────────────────────
+let _sync=false;
+function attachCameraSync(){
+  _sync=false;
+  const gt=document.getElementById('plot-gt'),pr=document.getElementById('plot-pr');
+  gt.on('plotly_relayout',e=>{
+    if(_sync||!e['scene.camera'])return;
+    _sync=true;Plotly.relayout(pr,{'scene.camera':e['scene.camera']}).then(()=>{_sync=false;});
+  });
+  pr.on('plotly_relayout',e=>{
+    if(_sync||!e['scene.camera'])return;
+    _sync=true;Plotly.relayout(gt,{'scene.camera':e['scene.camera']}).then(()=>{_sync=false;});
+  });
+}
+
+// ── initAll ────────────────────────────────────────────────────────────────────
+function initAll(newData, newD3){
+  if(playTimer){clearInterval(playTimer);playTimer=null;document.getElementById('play-btn').innerHTML='&#9654; Play';}
+  DATA=newData;
+  renderMode={gt:'iso',pr:'iso'};
+  document.getElementById('gt-pc-chk').checked=false;
+  document.getElementById('pr-pc-chk').checked=false;
+
+  gtTraces=[
+    buildVolumeTrace(newD3.iso_gt,INIT_OP),
+    {...buildPCfromGrid(newD3.iso_gt,INIT_OP),visible:false},
+    ...buildLmTrace(newD3.lm_gt,'GT','#00eeff','#ffaa22'),
+    buildHullTrace(newD3.hull_gt,'#22cc22','GT sweep'),
+    JSON.parse(JSON.stringify(emptySlice)),
+    {type:'scatter3d',mode:'lines',name:'Frame outline',x:[],y:[],z:[],line:{color:'#ff3333',width:3.5},hoverinfo:'skip'},
+  ];
+  prTraces=[
+    buildVolumeTrace(newD3.iso_pr,INIT_OP),
+    {...buildPCfromGrid(newD3.iso_pr,INIT_OP),visible:false},
+    ...buildLmTrace(newD3.lm_pr,'Pred','#00cccc','#ee8800'),
+    buildHullTrace(newD3.hull_pr,'#ff4444','Pred sweep'),
+    JSON.parse(JSON.stringify(emptySlice)),
+    {type:'scatter3d',mode:'lines',name:'Frame outline',x:[],y:[],z:[],line:{color:'#ff3333',width:3.5},hoverinfo:'skip'},
+  ];
+
+  Plotly.purge('plot-gt');Plotly.purge('plot-pr');
+  Promise.all([
+    Plotly.newPlot('plot-gt',gtTraces,scene3d,plotCfg),
+    Plotly.newPlot('plot-pr',prTraces,scene3d,plotCfg),
+  ]).then(()=>{
+    attachCameraSync();
+    updateInfobar(DATA.patient,DATA.scan,DATA.n_frames);
+    updateMetrics(DATA.metrics);
+    document.getElementById('frame-slider').max=DATA.n_frames-1;
+    currentFrame=0;setFrame(0);
+  });
+}
+
+// ── case loader ────────────────────────────────────────────────────────────────
+function loadCase(slug) {
+  if(!slug) return;
+  const loadEl=document.getElementById('loading');
+  const loadMsg=document.getElementById('loading-msg');
+  loadEl.style.display='flex';
+  loadMsg.textContent='Loading scan data…';
+  Promise.all([
+    fetch(`data/${slug}.json`).then(r=>{
+      if(!r.ok) throw new Error(`data/${slug}.json → HTTP ${r.status}`);
+      return r.json();
+    }),
+    fetch(`data/${slug}_3d.json`).then(r=>{
+      if(!r.ok) throw new Error(`data/${slug}_3d.json → HTTP ${r.status}`);
+      return r.json();
+    }),
+  ]).then(([data,d3])=>{
+    loadEl.style.display='none';
+    initAll(data,d3);
+  }).catch(err=>{
+    loadMsg.innerHTML=`<span style="color:#c00">&#9888; ${err.message}<br>
+      <small>Serve with: <code>python -m http.server</code> in the demo_site/ folder</small></span>`;
+  });
+}
+
+// ── boot ───────────────────────────────────────────────────────────────────────
+loadCase(CASES[0].slug);
+</script>
+</body>
+</html>
